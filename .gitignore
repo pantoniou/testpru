@@ -15,3 +15,12 @@
 *.exe
 *.out
 *.app
+
+# PRU compiler
+*.obj
+*.stripped
+*.pp
+*.lst
+
+# executable
+testpru
