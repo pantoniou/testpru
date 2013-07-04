@@ -21,7 +21,8 @@ STRIP=strippru
 # -ppd				Generate dependencies *.pp
 # -ppa				Continue after generating deps
 # -DDEBUG			Enable debug
-CFLAGS= -v3 --c99 --gcc -O3 --printf_support=minimal -ppd -ppa -DDEBUG 
+# CFLAGS= -v3 --c99 --gcc -O3 --printf_support=minimal -ppd -ppa -DDEBUG 
+CFLAGS= -v3 --c99 --gcc -O3 --printf_support=minimal -ppd -ppa
 
 # -cr 				Link using RAM auto init model (loader assisted)
 # -x				Reread libs until no unresolved symbols found

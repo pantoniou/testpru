@@ -118,6 +118,11 @@ int pru_vring_pop(struct pru_vring *pvr, struct pru_vring_elem *pvre);
 void pru_vring_push(struct pru_vring *pvr, const struct pru_vring_elem *pvre,
 		u32 len);
 
+#ifdef DEBUG
 void dump_vring(const char *name, struct vring *vring, unsigned int align);
+#else
+#define dump_vring(name, vring, align) \
+	do { } while(0)
+#endif
 
 #endif

@@ -23,6 +23,11 @@
 struct pru_vring tx_ring;
 struct pru_vring rx_ring;
 
+static struct pt pt_event;
+static struct pt pt_led;
+static struct pt pt_prompt;
+static struct pt pt_tx;
+
 #define DELAY_CYCLES(x) \
 	do { \
 		unsigned int t = (x); \
@@ -208,106 +213,289 @@ static int event_thread(struct pt *pt)
 	PT_END(pt);
 }
 
-static void handle_led_startup(void)
+static u32 hi_cycles = PRU_200MHz_us(100);
+static u32 lo_cycles = PRU_200MHz_us(100);
+
+static void led_kickstart(void)
 {
+	PIEP_CMP_STATUS = CMD_STATUS_CMP_HIT(0);
+	PIEP_CMP_CMP0 += hi_cycles;
+	__R30 |= (1 << 5);
+}
+
+static void update_hi_cycles(u32 new_cycles)
+{
+	hi_cycles = new_cycles;
+}
+
+static void update_lo_cycles(u32 new_cycles)
+{
+	lo_cycles = new_cycles;
+}
+
+#define USE_SW_COMPARE
+#undef USE_HW_COMPARE
+
+static int led_thread(struct pt *pt)
+{
+#ifdef USE_SW_COMPARE
+	static u32 next;
+#endif
+
+	PT_BEGIN(pt);
+
 	/* IEP timer is incrementing by one */
 	PIEP_GLOBAL_CFG = GLOBAL_CFG_CNT_ENABLE	|
 			  GLOBAL_CFG_DEFAULT_INC(1) |
 			  GLOBAL_CFG_CMP_INC(1);
 
+	/* lo */
+	__R30 &= ~(1 << 5);
+
 	/* delay with the timer */
-	PIEP_CMP_CMP0 = PIEP_COUNT + 10;
+	PIEP_CMP_CMP0 = PIEP_COUNT + lo_cycles;
 	PIEP_CMP_STATUS = CMD_STATUS_CMP_HIT(0); /* clear the interrupt */
 	PIEP_CMP_CFG |= CMP_CFG_CMP_EN(0);
 
-}
-
-static u32 led_cycles = PRU_us(100);
-
-static void handle_led_event(void)
-{
-	/* toggle led */
-	__R30 ^= (1 << 5);
-
-	PIEP_CMP_STATUS = CMD_STATUS_CMP_HIT(0);
-	PIEP_CMP_CMP0 += led_cycles;
-}
-
-#define led_condition() \
-	((PIEP_CMP_STATUS & CMD_STATUS_CMP_HIT(0)) != 0)
-
-static int led_thread(struct pt *pt)
-{
-	PT_BEGIN(pt);
-
+#ifdef USE_HW_COMPARE
 	for (;;) {
 		/* wait until we get the indication */
-		PT_WAIT_UNTIL(pt, led_condition());
+		PT_WAIT_UNTIL(pt,
+				(PIEP_CMP_STATUS & CMD_STATUS_CMP_HIT(0)) != 0);
+		__R30 |= (1 << 5);
+		PIEP_CMP_STATUS = CMD_STATUS_CMP_HIT(0);
+		PIEP_CMP_CMP0 += hi_cycles;
 
-		handle_led_event();
+		/* wait until we get the indication */
+		PT_WAIT_UNTIL(pt,
+				(PIEP_CMP_STATUS & CMD_STATUS_CMP_HIT(0)) != 0);
+		__R30 &= ~(1 << 5);
+		PIEP_CMP_STATUS = CMD_STATUS_CMP_HIT(0);
+		PIEP_CMP_CMP0 += lo_cycles;
+
 	}
+#endif
+
+#ifdef USE_SW_COMPARE
+	next = PIEP_COUNT + lo_cycles;
+	for (;;) {
+		/* wait until we get the indication */
+		PT_WAIT_UNTIL(pt, (int)(next - PIEP_COUNT) <= 0);
+		__R30 |= (1 << 5);
+		next += hi_cycles;
+
+		/* wait until we get the indication */
+		PT_WAIT_UNTIL(pt, (int)(next - PIEP_COUNT) <= 0);
+		__R30 &= ~(1 << 5);
+		next += lo_cycles;
+
+	}
+#endif
 
 	PT_YIELD(pt);
 
 	PT_END(pt);
 }
 
-#define v_puts(_p, _ch, _str) \
+/* context for console I/O */
+#define CONSOLE_LINE_MAX	80
+
+struct console_cxt {
+	struct pt pt;
+	char *buf;
+	int size;
+	int max_size;
+	u8 flags;
+#define S_WRITEMODE	0x01
+#define S_CRLF		0x02
+#define S_LINEMODE	0x04
+#define S_ECHO		0x08
+#define S_READLINE	0x10
+};
+/* pt must always! me the first member */
+#define to_console_cxt(_pt)	((struct console_cxt *)(void *)(_pt))
+
+static int console_thread(struct pt *pt)
+{
+	struct console_cxt *c = to_console_cxt(pt);	/* always called */
+	static char ch;
+
+	PT_BEGIN(pt);
+	if (c->flags & S_WRITEMODE) {
+		c->size = 0;
+		while (c->size < c->max_size) {
+			ch = *c->buf;
+			if ((c->flags & S_LINEMODE) && ch == '\0')
+				goto out;
+			c->size++;
+			c->buf++;
+			/* '\n' -> '\r\n' */
+			if ((c->flags & S_CRLF) && ch == '\n')
+				TX_IN('\r');
+			TX_IN(ch);
+		}
+
+	} else {
+		c->size = 0;
+		for (;;) {
+rx_again:
+			if ((c->flags & S_READLINE) == 0 &&
+					c->size >= c->max_size)
+				goto out;
+
+			RX_OUT(ch);
+
+			/* only support backspace (or del) */
+			if ((c->flags & S_READLINE) &&
+					(ch == '\b' || ch == 0x7f)) {
+				if (c->size > 0) {
+					c->size--;
+					c->buf--;
+					TX_IN('\b');
+					TX_IN(' ');
+					TX_IN('\b');
+				}
+				goto rx_again;
+			}
+
+			if ((c->flags & S_LINEMODE) &&
+					(ch == '\r' || ch == '\n')) {
+				if (c->size < c->max_size)
+					*c->buf = '\0';
+				goto out;
+			}
+
+			if ((c->flags & S_ECHO))
+				TX_IN(ch);
+
+			/* stop at max */
+			if ((c->flags & S_READLINE) && c->size >= c->max_size)
+				goto rx_again;
+
+			*c->buf++ = ch;
+			c->size++;
+		}
+	}
+out:
+	PT_YIELD(pt);
+
+	PT_END(pt);
+}
+
+/* context unions (only one active at the time) */
+static struct console_cxt console_cxt;
+
+#define c_puts(_str) \
 	do { \
-		_p = (_str); \
-		while ((_ch = *_p++) != '\0') \
-			TX_IN(_ch); \
+		console_cxt.buf = (void *)(_str); \
+		console_cxt.size = 0; \
+		console_cxt.max_size = strlen(console_cxt.buf); \
+		console_cxt.flags = S_CRLF | S_LINEMODE | S_WRITEMODE; \
+		PT_SPAWN(pt, &console_cxt.pt, console_thread(&console_cxt.pt)); \
 	} while(0)
 
-#define v_putc(_ch) TX_IN(_ch)
-#define v_getc(_ch) RX_OUT(_ch)
+#define c_write(_str, _sz) \
+	do { \
+		console_cxt.buf = (void *)(_str); \
+		console_cxt.size = 0; \
+		console_cxt.max_size = (_sz); \
+		console_cxt.flags = S_CRLF | S_WRITEMODE; \
+		PT_SPAWN(pt, &console_cxt.pt, console_thread(&console_cxt.pt)); \
+	} while(0)
+
+#define c_getc(_ch) \
+	do { \
+		console_cxt.buf = (void *) &(_ch); \
+		console_cxt.size = 0; \
+		console_cxt.max_size = 1; \
+		console_cxt.flags = S_CRLF | S_LINEMODE; \
+		PT_SPAWN(pt, &console_cxt.pt, console_thread(&console_cxt.pt)); \
+	} while(0)
+
+#define c_gets(_buf, _max) \
+	do { \
+		console_cxt.buf = (void *)(_buf); \
+		console_cxt.size = 0; \
+		console_cxt.max_size = _max; \
+		console_cxt.flags = S_CRLF | S_LINEMODE; \
+		PT_SPAWN(pt, &console_cxt.pt, console_thread(&console_cxt.pt)); \
+	} while(0)
+
+#define c_read(_buf, _sz) \
+	do { \
+		console_cxt.buf = (void *)(_buf); \
+		console_cxt.size = 0; \
+		console_cxt.max_size = (_sz); \
+		console_cxt.flags = S_CRLF; \
+		PT_SPAWN(pt, &console_cxt.pt, console_thread(&console_cxt.pt)); \
+	} while(0)
+
+#define c_readline(_buf, _sz) \
+	do { \
+		console_cxt.buf = (void *)(_buf); \
+		console_cxt.size = 0; \
+		console_cxt.max_size = (_sz); \
+		console_cxt.flags = S_CRLF | S_LINEMODE | S_ECHO | S_READLINE; \
+		PT_SPAWN(pt, &console_cxt.pt, console_thread(&console_cxt.pt)); \
+		(_sz) = console_cxt.size; \
+	} while(0)
+
+static int simple_atoi(const char *str)
+{
+	int result;
+	char c;
+
+	result = 0;
+	while (c = *str++) {
+		result *= 10;
+		result += c - '0';
+	}
+	return result;
+}
 
 static int prompt_thread(struct pt *pt)
 {
-	static char ch, ch1;
-	static char *p;
+	static char ch1;
 	static char *pp;
+	static char linebuf[80];
+	char *p;
+	static int linesz;
+	int us;
+	u32 val;
 
 	PT_BEGIN(pt);
 
 	for (;;) {
-		v_puts(p, ch, "PRU> ");
-		v_getc(ch1);
-		v_putc(ch1);
+again:
+		c_puts("PRU> ");
+		linesz = sizeof(linebuf);
+		c_readline(linebuf, linesz);
+		c_puts("\n");
+		if (linesz == 0)
+			goto again;
+
+		ch1 = linebuf[0];
 
 		if (ch1 == '?') {
-			pp = "\r\nHelp\r\n";
-		} else if (ch1 == '1') {
-			led_cycles = PRU_ms(500);
-			pp = "\r\n500ms\r\n";
-		} else if (ch1 == '2') {
-			led_cycles = PRU_ms(100);
-			pp = "\r\n100ms\r\n";
-		} else if (ch1 == '3') {
-			led_cycles = PRU_ms(1);
-			pp = "\r\n1ms\r\n";
-		} else if (ch1 == '4') {
-			led_cycles = PRU_us(500);
-			pp = "\r\n500us\r\n";
-		} else if (ch1 == '5') {
-			led_cycles = PRU_us(250);
-			pp = "\r\n500us\r\n";
-		} else if (ch1 == '6') {
-			led_cycles = PRU_us(100);
-			pp = "\r\n100us\r\n";
-		} else if (ch1 == '7') {
-			led_cycles = PRU_us(10);
-			pp = "\r\n10us\r\n";
-		} else if (ch1 == '8') {
-			led_cycles = PRU_us(1);
-			pp = "\r\n1us\r\n";
-		} else if (ch1 == '9') {
-			led_cycles = PRU_ns(500);
-			pp = "\r\n500ns\r\n";
+			c_puts("Help\n"
+				" h <us> set high in us\n"
+				" l <us> set low in us\n");
+		} else if (ch1 == 'h' || ch1 == 'l') {
+			p = linebuf + 1;
+			while (*p == ' ')
+				p++;
+			us = simple_atoi(p);
+			val = PRU_us(us);
+			if (ch1 == 'h')
+				update_hi_cycles(val);
+			else
+				update_lo_cycles(val);
+			led_kickstart();
 		} else {
-			pp = "\r\n*BAD*\r\n";
+			pp = "*BAD*\n";
 		}
-		v_puts(p, ch, pp);
+
+		c_puts(pp);
 	}
 
 	PT_YIELD(pt);
@@ -358,11 +546,6 @@ static int tx_thread(struct pt *pt)
 	PT_END(pt);
 }
 
-static struct pt pt_event;
-static struct pt pt_led;
-static struct pt pt_prompt;
-static struct pt pt_tx;
-
 int main(int argc, char *argv[])
 {
 	/* enable OCP master port */
@@ -378,8 +561,6 @@ int main(int argc, char *argv[])
 	handle_event_startup();
 	rx_in = rx_out = rx_cnt = 0;
 	tx_in = tx_out = tx_cnt = 0;
-
-	handle_led_startup();
 
 	for (;;) {
 		event_thread(&pt_event);

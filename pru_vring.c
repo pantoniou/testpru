@@ -105,6 +105,7 @@ void pru_vring_push(struct pru_vring *pvr,
 	pru_vring_used_idx_set(pvr, ++old);
 }
 
+#ifdef DEBUG
 void dump_vring(const char *name, struct vring *vring, unsigned int align)
 {
 	struct vring_desc *vd;
@@ -140,4 +141,4 @@ void dump_vring(const char *name, struct vring *vring, unsigned int align)
 	}
 
 }
-
+#endif

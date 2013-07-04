@@ -485,13 +485,32 @@ extern cregister void *C28;	/* local pointer */
 #endif
 
 /* NOTE: Do no use it for larger than 5 secs */
-#define PRU_sec(x)	((u32)(((u64)(x) * PRU_CLK))
+#define PRU_200MHz_sec(x)	((u32)(((x) * 200000000)))
+#define PRU_200MHz_ms(x)	((u32)(((x) * 200000)))
+#define PRU_200MHz_ms_err(x)	0
+#define PRU_200MHz_us(x)	((u32)(((x) * 200)))
+#define PRU_200MHz_us_err(x)	0
+#define PRU_200MHz_ns(x)	((u32)(((x) * 2) / 10))
+#define PRU_200MHz_ns_err(x)	((u32)(((x) * 2) % 10))
+
+#if PRU_CLK != 200000000 
+/* NOTE: Do no use it for larger than 5 secs */
+#define PRU_sec(x)	((u32)(((u64)(x) * PRU_CLK)))
 #define PRU_ms(x)	((u32)(((u64)(x) * PRU_CLK) / 1000))
 #define PRU_ms_err(x)	((u32)(((u64)(x) * PRU_CLK) % 1000))
 #define PRU_us(x)	((u32)(((u64)(x) * PRU_CLK) / 1000000))
 #define PRU_us_err(x)	((u32)(((u64)(x) * PRU_CLK) % 1000000))
 #define PRU_ns(x)	((u32)(((u64)(x) * PRU_CLK) / 1000000000))
 #define PRU_ns_err(x)	((u32)(((u64)(x) * PRU_CLK) % 1000000000))
-
+#else
+/* NOTE: Do no use it for larger than 5 secs */
+#define PRU_sec(x)	PRU_200MHz_sec(x)
+#define PRU_ms(x)	PRU_200MHz_ms(x)
+#define PRU_ms_err(x)	PRU_200MHz_ms_err(x)
+#define PRU_us(x)	PRU_200MHz_us(x)
+#define PRU_us_err(x)	PRU_200MHz_us_err(x)
+#define PRU_ns(x)	PRU_200MHz_ns(x)
+#define PRU_ns_err(x)	PRU_200MHz_ns_err(x)
+#endif
 
 #endif
