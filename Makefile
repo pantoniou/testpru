@@ -5,7 +5,7 @@
 
 .PHONY: all clean
 
-all: testpru.stripped testpru.lst
+all: testpru0.stripped testpru0.lst testpru1.stripped testpru1.lst
 
 CC=clpru
 LD=lnkpru
@@ -30,7 +30,8 @@ LDFLAGS=-cr --diag_warning=225 -llnk-am33xx.cmd -x
 
 STRIPFLAGS=
 
-OBJS:=testpru.obj syscall.obj debug.obj pru_vring.obj
+OBJS0:=testpru0.obj syscall0.obj debug.obj pru_vring.obj asmutil.obj
+OBJS1:=testpru1.obj syscall1.obj debug.obj asmutil.obj
 
 %.obj: %.c
 	$(CC) $(CFLAGS) -c $<
@@ -38,17 +39,29 @@ OBJS:=testpru.obj syscall.obj debug.obj pru_vring.obj
 %.obj: %.asm
 	$(CC) $(CFLAGS) -c $<
 
-testpru: $(OBJS)
+testpru0: $(OBJS0)
 	$(CC) $(CFLAGS) $^ -z $(LDFLAGS) -o $@
 
-testpru.stripped: testpru
+testpru1: $(OBJS1)
+	$(CC) $(CFLAGS) $^ -z $(LDFLAGS) -o $@
+
+testpru0.stripped: testpru0
 	$(STRIP) $(STRIPFLAGS) $< -o $@
 
-testpru.lst: testpru
+testpru1.stripped: testpru1
+	$(STRIP) $(STRIPFLAGS) $< -o $@
+
+testpru0.lst: testpru0
+	$(OBJDUMP) -1 $< > $@
+
+testpru1.lst: testpru1
 	$(OBJDUMP) -1 $< > $@
 
 clean:
-	rm -f testpru testpru.asm *.obj *.lst *.out *.stripped \
+	rm -f \
+		testpru0 testpru0.asm \
+		testpru1 testpru1.asm \
+		*.obj *.lst *.out *.stripped \
 		tags
 
 distclean: clean

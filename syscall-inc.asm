@@ -2,7 +2,7 @@
 ;* Syscall handlers
 ;*
 
-	.asg 35, SYSCALL_VALUE	;* The sysevent is 19 (+16 = 35)
+	;* must be included by syscall0.asm or syscall1.asm
 
         .text
 

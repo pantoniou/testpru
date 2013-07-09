@@ -3,6 +3,8 @@
  *
  */
 
+#define PRU0
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdarg.h>
@@ -11,38 +13,30 @@
 
 #include "debug.h"
 #include "pru_defs.h"
-
+#include "prucomm.h"
 #include "linux_types.h"
 #include "remoteproc.h"
 #include "syscall.h"
-
 #include "pru_vring.h"
-
 #include "pt.h"
 
 struct pru_vring tx_ring;
 struct pru_vring rx_ring;
 
 static struct pt pt_event;
-static struct pt pt_led;
+// static struct pt pt_led;
 static struct pt pt_prompt;
 static struct pt pt_tx;
 
 #define DELAY_CYCLES(x) \
 	do { \
-		unsigned int t = (x); \
-		while (--t) { \
+		unsigned int t = (x) >> 1; \
+		do { \
 			__asm(" "); \
-		} \
+		} while (--t); \
 	} while(0)
 
-/* event definitions */
-#define SYSEV_ARM_TO_PRU0	21
-#define SYSEV_ARM_TO_PRU1	22
-#define SYSEV_PRU0_TO_ARM	19
-#define SYSEV_PRU0_TO_PRU1	17
-#define SYSEV_PRU1_TO_ARM	20
-#define SYSEV_PRU1_TO_PRU0	19
+extern void delay_cycles(u16 cycles);
 
 void *resource_get_type(struct resource_table *res, int type, int idx)
 {
@@ -63,10 +57,12 @@ void *resource_get_type(struct resource_table *res, int type, int idx)
 
 static void handle_event_startup(void)
 {
-	int i;
 	struct resource_table *res;
 	struct fw_rsc_vdev *rsc_vdev;
+#ifdef DEBUG
+	int i;
 	struct fw_rsc_vdev_vring *rsc_vring;
+#endif
 
 	res = sc_get_cfg_resource_table();
 	BUG_ON(res == NULL);
@@ -76,18 +72,17 @@ static void handle_event_startup(void)
 	BUG_ON(rsc_vdev == NULL);
 
 	BUG_ON(rsc_vdev->num_of_vrings < 2);
+#ifdef DEBUG
 	for (i = 0, rsc_vring = rsc_vdev->vring; i < 2; i++, rsc_vring++) {
 		sc_printf("VR#%d: da=0x%x align=0x%x num=0x%x notifyid=0x%x",
 				i, rsc_vring->da, rsc_vring->align,
 				rsc_vring->num, rsc_vring->notifyid);
 	}
+#endif
 
 	pru_vring_init(&tx_ring, "tx", &rsc_vdev->vring[0]);
 	pru_vring_init(&rx_ring, "rx", &rsc_vdev->vring[1]);
 }
-
-#define event_condition() \
-	((__R31 & (1 << 30)) != 0)
 
 #define RX_SIZE	32
 #define RX_SIZE_MASK (RX_SIZE - 1)
@@ -157,10 +152,10 @@ static int event_thread(struct pt *pt)
 
 	for (;;) {
 		/* wait until we get the indication */
-		PT_WAIT_UNTIL(pt, event_condition());
+		PT_WAIT_UNTIL(pt, pru_signal());
 
-		if (PINTC_SRSR0 & (1 << SYSEV_ARM_TO_PRU0)) {
-			PINTC_SICR = SYSEV_ARM_TO_PRU0;
+		if (PINTC_SRSR0 & (1 << SYSEV_ARM_TO_THIS_PRU)) {
+			PINTC_SICR = SYSEV_ARM_TO_THIS_PRU;
 
 			while (pru_vring_pop(&rx_ring, &pvre)) {
 
@@ -202,8 +197,8 @@ static int event_thread(struct pt *pt)
 			}
 		}
 
-		if (PINTC_SRSR0 & (1 << SYSEV_PRU1_TO_PRU0)) {
-			PINTC_SICR = SYSEV_PRU1_TO_PRU0;
+		if (PINTC_SRSR0 & (1 << SYSEV_OTHER_PRU_TO_THIS_PRU)) {
+			PINTC_SICR = SYSEV_OTHER_PRU_TO_THIS_PRU;
 		}
 	}
 
@@ -213,6 +208,7 @@ static int event_thread(struct pt *pt)
 	PT_END(pt);
 }
 
+#if 0
 static u32 hi_cycles = PRU_200MHz_us(100);
 static u32 lo_cycles = PRU_200MHz_us(100);
 
@@ -233,12 +229,13 @@ static void update_lo_cycles(u32 new_cycles)
 	lo_cycles = new_cycles;
 }
 
+#undef  USE_HW_COMPARE
 #define USE_SW_COMPARE
-#undef USE_HW_COMPARE
+#undef  USE_SW_LOOP
 
 static int led_thread(struct pt *pt)
 {
-#ifdef USE_SW_COMPARE
+#if defined(USE_SW_COMPARE) || defined(USE_SW_LOOP)
 	static u32 next;
 #endif
 
@@ -255,7 +252,7 @@ static int led_thread(struct pt *pt)
 	/* delay with the timer */
 	PIEP_CMP_CMP0 = PIEP_COUNT + lo_cycles;
 	PIEP_CMP_STATUS = CMD_STATUS_CMP_HIT(0); /* clear the interrupt */
-	PIEP_CMP_CFG |= CMP_CFG_CMP_EN(0);
+	PIEP_CMP_CFG |= CMP_CFG_CMP_EN(0) | CMP_CFG_CMP_EN(1);
 
 #ifdef USE_HW_COMPARE
 	for (;;) {
@@ -288,6 +285,34 @@ static int led_thread(struct pt *pt)
 		PT_WAIT_UNTIL(pt, (int)(next - PIEP_COUNT) <= 0);
 		__R30 &= ~(1 << 5);
 		next += lo_cycles;
+	}
+#endif
+
+#ifdef USE_SW_LOOP
+	next = PIEP_COUNT + lo_cycles;
+	for (;;) {
+asm(
+"	.global t1\n"
+"t1:\n"
+);
+		DELAY_CYCLES(lo_cycles);
+
+asm(
+"	.global t2\n"
+"t2:\n"
+);
+		__R30 |= (1 << 5);
+		next += hi_cycles;
+
+		/* wait until we get the indication */
+		DELAY_CYCLES(hi_cycles);
+
+		__R30 &= ~(1 << 5);
+		next += lo_cycles;
+
+		/* simply yield if there's any activity */
+		if (pru_signal() || rx_cnt || tx_cnt || pru_vring_buf_is_avail(&tx_ring))
+			PT_YIELD(pt);
 
 	}
 #endif
@@ -296,6 +321,7 @@ static int led_thread(struct pt *pt)
 
 	PT_END(pt);
 }
+#endif
 
 /* context for console I/O */
 #define CONSOLE_LINE_MAX	80
@@ -440,17 +466,27 @@ static struct console_cxt console_cxt;
 		(_sz) = console_cxt.size; \
 	} while(0)
 
-static int simple_atoi(const char *str)
+static char *parse_u32(char *str, u32 *valp)
 {
-	int result;
+	u32 result;
+	u32 tval;
 	char c;
 
+	while (*str == ' ')
+		str++;
+
 	result = 0;
-	while (c = *str++) {
+	for (;;) {
+		c = *str;
+		tval = (u32)(c - '0');
+		if (tval >= 10)
+			break;
 		result *= 10;
-		result += c - '0';
+		result += tval;
+		str++;
 	}
-	return result;
+	*valp = result;
+	return str;
 }
 
 static int prompt_thread(struct pt *pt)
@@ -460,10 +496,25 @@ static int prompt_thread(struct pt *pt)
 	static char linebuf[80];
 	char *p;
 	static int linesz;
-	int us;
 	u32 val;
+#if 0
+	static struct pwm_config *pwmc;
+	static u8 mode;
+#endif
 
 	PT_BEGIN(pt);
+
+#if 0
+	pwmc = (void *)DPRAM_SHARED;
+	mode = 0;	/* us */
+
+	pwmc->hi_cycles = hi_cycles;
+	pwmc->lo_cycles = lo_cycles;
+
+	/* VRING0 PRU0 -> PRU1 */
+	SIGNAL_EVENT(17);
+#endif
+	PWM_CMD->magic = PWM_REPLY_MAGIC;
 
 	for (;;) {
 again:
@@ -480,17 +531,40 @@ again:
 			c_puts("Help\n"
 				" h <us> set high in us\n"
 				" l <us> set low in us\n");
-		} else if (ch1 == 'h' || ch1 == 'l') {
-			p = linebuf + 1;
-			while (*p == ' ')
-				p++;
-			us = simple_atoi(p);
-			val = PRU_us(us);
-			if (ch1 == 'h')
-				update_hi_cycles(val);
+		} else if (ch1 == 'e' || ch1 == 'd') {
+
+			/* wait until the command is processed */
+			PT_WAIT_UNTIL(pt, PWM_CMD->magic == PWM_REPLY_MAGIC);
+
+			if (ch1 == 'e') 
+				PWM_CMD->cmd = PWM_CMD_ENABLE;
 			else
-				update_lo_cycles(val);
-			led_kickstart();
+				PWM_CMD->cmd = PWM_CMD_DISABLE;
+
+			p = parse_u32(linebuf + 1, &val);
+			PWM_CMD->pwm_nr = val;
+
+			PWM_CMD->magic = PWM_CMD_MAGIC;
+			SIGNAL_EVENT(SYSEV_THIS_PRU_TO_OTHER_PRU);
+
+		} else if (ch1 == 'm') {
+
+			/* wait until the command is processed */
+			PT_WAIT_UNTIL(pt, PWM_CMD->magic == PWM_REPLY_MAGIC);
+
+			PWM_CMD->cmd = PWM_CMD_MODIFY;
+
+			p = parse_u32(linebuf + 1, &val);
+			PWM_CMD->pwm_nr = val;
+
+			p = parse_u32(p, &val);
+			PWM_CMD->u.hilo[0] = val;
+
+			p = parse_u32(p, &val);
+			PWM_CMD->u.hilo[1] = val;
+
+			PWM_CMD->magic = PWM_CMD_MAGIC;
+			SIGNAL_EVENT(SYSEV_THIS_PRU_TO_OTHER_PRU);
 		} else {
 			pp = "*BAD*\n";
 		}
@@ -537,8 +611,7 @@ static int tx_thread(struct pt *pt)
 
 		pru_vring_push_one(&tx_ring, chunk);
 
-		/* VRING0 PRU0 -> ARM */
-		SIGNAL_EVENT(25);
+		SIGNAL_EVENT(SYSEV_THIS_PRU_TO_ARM);
 	}
 
 	PT_YIELD(pt);
@@ -546,15 +619,26 @@ static int tx_thread(struct pt *pt)
 	PT_END(pt);
 }
 
+#define T1 asm (" .global T1\nT1:");
+#define T2 asm (" .global T2\nT2:");
+
 int main(int argc, char *argv[])
 {
 	/* enable OCP master port */
 	PRUCFG_SYSCFG &= ~SYSCFG_STANDBY_INIT;
 
-	sc_printf("Using protothreads");
+	sc_printf("PRU0: Using protothreads");
+
+	PCTRL_CTPPR0 = (PCTRL_CTPPR0 & ~0xffff) | (DPRAM_SHARED >> 8);
+	sc_printf("CTPPR0 0x%x\n", PCTRL_CTPPR0);
+	*(volatile u32 *)DPRAM_SHARED = 0xdeadbeef;
+	sc_printf("DPRAM_SHARED[0] = 0x%x\n", *(volatile u32 *)DPRAM_SHARED);
+T1
+	sc_printf("DPRAM_SHARED[0] = 0x%x\n", *(volatile u32 *)((char *)C28));
+T2
 
 	PT_INIT(&pt_event);
-	PT_INIT(&pt_led);
+	// PT_INIT(&pt_led);
 	PT_INIT(&pt_prompt);
 	PT_INIT(&pt_tx);
 
@@ -565,7 +649,7 @@ int main(int argc, char *argv[])
 	for (;;) {
 		event_thread(&pt_event);
 		tx_thread(&pt_tx);
-		led_thread(&pt_led);
+		// led_thread(&pt_led);
 		prompt_thread(&pt_prompt);
 	}
 }

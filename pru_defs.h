@@ -4,9 +4,37 @@
 volatile register unsigned int __R31;
 volatile register unsigned int __R30;
 extern cregister void *C0;	/* PINTC */
+extern cregister void *C1;
+extern cregister void *C2;
+extern cregister void *C3;
 extern cregister void *C4;	/* PRUCFG */
+extern cregister void *C5;
+extern cregister void *C6;
+extern cregister void *C7;
+extern cregister void *C8;
+extern cregister void *C9;
+extern cregister void *C10;
+extern cregister void *C11;
+extern cregister void *C12;
+extern cregister void *C13;
+extern cregister void *C14;
+extern cregister void *C15;
+extern cregister void *C16;
+extern cregister void *C17;
+extern cregister void *C18;
+extern cregister void *C19;
+extern cregister void *C20;
+extern cregister void *C21;
+extern cregister void *C22;
+extern cregister void *C23;
+extern cregister void *C24;
+extern cregister void *C25;
 extern cregister void *C26;	/* IEP */
+extern cregister void *C27;
 extern cregister void *C28;	/* local pointer */
+extern cregister void *C29;
+extern cregister void *C30;
+extern cregister void *C31;
 
 #define PRUCFG(_reg) \
 	(*(volatile u32 *)((char *)C4 + (_reg)))
@@ -29,6 +57,9 @@ extern cregister void *C28;	/* local pointer */
 #define  SYSCFG_STANDBY_MODE_SMART	(2 << SYSCFG_STANDBY_MODE_S)
 #define  SYSCFG_STANDBY_INIT		(1 << 4)
 #define  SYSCFG_SUB_MWAIT		(1 << 5)
+#define PRUCFG_SPP	PRUCFG(0x0034)
+#define  SPP_PRU1_PAD_HP_EN		(1 << 0)
+#define  SPP_XFR_SHIFT_EN		(1 << 1)
 
 #define PRUCFG_GPCFG0	PRUCFG(0x0008)
 #define  CPCFG0_PRU0_GPI_MODE_S		0
@@ -456,10 +487,22 @@ extern cregister void *C28;	/* local pointer */
 #define PIEP_CMP_CMP7		PIEP(0x0064)
 #define PIEP_CMP_CMP(x)		PIEP(0x0048 + ((x) << 2))
 
+#if defined(PRU0) || defined(PRU1)
+
+#ifdef PRU0
+#define PCTRL(_reg) \
+	(*(volatile u32 *)((char *)0x22000 + (_reg)))
+#else
 #define PCTRL(_reg) \
 	(*(volatile u32 *)((char *)0x24000 + (_reg)))
+#endif
 
 #define PCTRL_CONTROL		PCTRL(0x0000)
+#define  CONTROL_SOFT_RST_N	(1 << 0)
+#define  CONTROL_ENABLE		(1 << 1)
+#define  CONTROL_SLEEPING	(1 << 2)
+#define  CONTROL_COUNTER_ENABLE	(1 << 3)
+#define  CONTROL_SINGLE_STEP	(1 << 8)
 #define PCTRL_STATUS		PCTRL(0x0004)
 #define PCTRL_WAKEUP_EN		PCTRL(0x0008)
 #define PCTRL_CYCLE		PCTRL(0x000C)
@@ -468,6 +511,8 @@ extern cregister void *C28;	/* local pointer */
 #define PCTRL_CTBIR1		PCTRL(0x0024)
 #define PCTRL_CTPPR0		PCTRL(0x0028)
 #define PCTRL_CTPPR1		PCTRL(0x002C)
+
+#endif
 
 /* secondary access by C28 (which must point to 0x20200 */
 #define PINTC_0200(_reg) \
@@ -511,6 +556,47 @@ extern cregister void *C28;	/* local pointer */
 #define PRU_us_err(x)	PRU_200MHz_us_err(x)
 #define PRU_ns(x)	PRU_200MHz_ns(x)
 #define PRU_ns_err(x)	PRU_200MHz_ns_err(x)
+#endif
+
+#define DPRAM_SHARED	0x00010000
+
+/* event definitions */
+#define SYSEV_ARM_TO_PRU0	21
+#define SYSEV_ARM_TO_PRU1	22
+#define SYSEV_PRU0_TO_ARM	19
+#define SYSEV_PRU0_TO_PRU1	17
+#define SYSEV_PRU1_TO_ARM	20
+#define SYSEV_PRU1_TO_PRU0	19
+
+#define pru0_signal() (__R31 & (1U << 30))
+#define pru1_signal() (__R31 & (1U << 31))
+
+#ifdef PRU0
+#define pru_signal()	pru0_signal()
+#define SYSEV_OTHER_PRU_TO_THIS_PRU	SYSEV_PRU1_TO_PRU0
+#define SYSEV_ARM_TO_THIS_PRU		SYSEV_ARM_TO_PRU0
+#define SYSEV_THIS_PRU_TO_OTHER_PRU	SYSEV_PRU0_TO_PRU1
+#define SYSEV_THIS_PRU_TO_ARM		SYSEV_PRU0_TO_ARM
+#endif
+
+#ifdef PRU1
+#define pru_signal()	pru1_signal()
+#define SYSEV_OTHER_PRU_TO_THIS_PRU	SYSEV_PRU0_TO_PRU1
+#define SYSEV_ARM_TO_THIS_PRU		SYSEV_ARM_TO_PRU1
+#define SYSEV_THIS_PRU_TO_OTHER_PRU	SYSEV_PRU1_TO_PRU0
+#define SYSEV_THIS_PRU_TO_ARM		SYSEV_PRU1_TO_ARM
+#endif
+
+#define DELAY_CYCLES(x) \
+	do { \
+		unsigned int t = (x) >> 1; \
+		do { \
+			__asm(" "); \
+		} while (--t); \
+	} while(0)
+
+#ifndef BIT
+#define BIT(x) (1U << (x))
 #endif
 
 #endif
