@@ -151,9 +151,12 @@ static int event_thread(struct pt *pt)
 
 	for (;;) {
 		/* wait until we get the indication */
-		PT_WAIT_UNTIL(pt, pru_signal());
+		PT_WAIT_UNTIL(pt,
+			/* pru_signal() && */
+			(PINTC_SRSR0 & (BIT(SYSEV_ARM_TO_THIS_PRU) |
+				BIT(SYSEV_OTHER_PRU_TO_THIS_PRU))) != 0);
 
-		if (PINTC_SRSR0 & (1 << SYSEV_ARM_TO_THIS_PRU)) {
+		if (PINTC_SRSR0 & BIT(SYSEV_ARM_TO_THIS_PRU)) {
 			PINTC_SICR = SYSEV_ARM_TO_THIS_PRU;
 
 			while (pru_vring_pop(&rx_ring, &pvre)) {
@@ -191,12 +194,13 @@ static int event_thread(struct pt *pt)
 				}
 
 				pru_vring_push(&rx_ring, &pvre, rx_len);
-				/* VRING0 PRU0 -> ARM */
-				SIGNAL_EVENT(25);
+
+				/* VRING PRU -> ARM */
+				SIGNAL_EVENT(SYSEV_VR_THIS_PRU_TO_ARM);
 			}
 		}
 
-		if (PINTC_SRSR0 & (1 << SYSEV_OTHER_PRU_TO_THIS_PRU)) {
+		if (PINTC_SRSR0 & BIT(SYSEV_OTHER_PRU_TO_THIS_PRU)) {
 			PINTC_SICR = SYSEV_OTHER_PRU_TO_THIS_PRU;
 		}
 	}
@@ -482,7 +486,8 @@ static int tx_thread(struct pt *pt)
 
 		pru_vring_push_one(&tx_ring, chunk);
 
-		SIGNAL_EVENT(SYSEV_THIS_PRU_TO_ARM);
+		// SIGNAL_EVENT(SYSEV_THIS_PRU_TO_ARM);
+		SIGNAL_EVENT(SYSEV_VR_THIS_PRU_TO_ARM);
 	}
 
 	PT_YIELD(pt);

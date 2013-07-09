@@ -582,6 +582,12 @@ extern cregister void *C31;
 #define SYSEV_PRU1_TO_ARM	20
 #define SYSEV_PRU1_TO_PRU0	19
 
+/* for communication with the host we have another set of events */
+#define SYSEV_VR_ARM_TO_PRU0	24
+#define SYSEV_VR_PRU0_TO_ARM	25
+#define SYSEV_VR_ARM_TO_PRU1	26
+#define SYSEV_VR_PRU1_TO_ARM	27
+
 #define pru0_signal() (__R31 & (1U << 30))
 #define pru1_signal() (__R31 & (1U << 31))
 
@@ -591,6 +597,8 @@ extern cregister void *C31;
 #define SYSEV_ARM_TO_THIS_PRU		SYSEV_ARM_TO_PRU0
 #define SYSEV_THIS_PRU_TO_OTHER_PRU	SYSEV_PRU0_TO_PRU1
 #define SYSEV_THIS_PRU_TO_ARM		SYSEV_PRU0_TO_ARM
+#define SYSEV_VR_ARM_TO_THIS_PRU	SYSEV_VR_ARM_TO_PRU0
+#define SYSEV_VR_THIS_PRU_TO_ARM	SYSEV_VR_PRU0_TO_ARM
 #endif
 
 #ifdef PRU1
@@ -599,6 +607,8 @@ extern cregister void *C31;
 #define SYSEV_ARM_TO_THIS_PRU		SYSEV_ARM_TO_PRU1
 #define SYSEV_THIS_PRU_TO_OTHER_PRU	SYSEV_PRU1_TO_PRU0
 #define SYSEV_THIS_PRU_TO_ARM		SYSEV_PRU1_TO_ARM
+#define SYSEV_VR_ARM_TO_THIS_PRU	SYSEV_VR_ARM_TO_PRU1
+#define SYSEV_VR_THIS_PRU_TO_ARM	SYSEV_VR_PRU1_TO_ARM
 #endif
 
 #define DELAY_CYCLES(x) \
