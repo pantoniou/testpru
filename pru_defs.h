@@ -492,9 +492,13 @@ extern cregister void *C31;
 #ifdef PRU0
 #define PCTRL(_reg) \
 	(*(volatile u32 *)((char *)0x22000 + (_reg)))
+#define PCTRL_OTHER(_reg) \
+	(*(volatile u32 *)((char *)0x24000 + (_reg)))
 #else
 #define PCTRL(_reg) \
 	(*(volatile u32 *)((char *)0x24000 + (_reg)))
+#define PCTRL_OTHER(_reg) \
+	(*(volatile u32 *)((char *)0x22000 + (_reg)))
 #endif
 
 #define PCTRL_CONTROL		PCTRL(0x0000)
@@ -503,6 +507,7 @@ extern cregister void *C31;
 #define  CONTROL_SLEEPING	(1 << 2)
 #define  CONTROL_COUNTER_ENABLE	(1 << 3)
 #define  CONTROL_SINGLE_STEP	(1 << 8)
+#define  CONTROL_RUNSTATE	(1 << 15)
 #define PCTRL_STATUS		PCTRL(0x0004)
 #define PCTRL_WAKEUP_EN		PCTRL(0x0008)
 #define PCTRL_CYCLE		PCTRL(0x000C)
@@ -511,6 +516,15 @@ extern cregister void *C31;
 #define PCTRL_CTBIR1		PCTRL(0x0024)
 #define PCTRL_CTPPR0		PCTRL(0x0028)
 #define PCTRL_CTPPR1		PCTRL(0x002C)
+
+/* we can't access our debug registers (since we have to be stopped) */
+#ifdef PRU0
+#define PDBG_OTHER(_reg) \
+	(*(volatile u32 *)((char *)0x24400 + (_reg)))
+#else
+#define PDBG_OTHER(_reg) \
+	(*(volatile u32 *)((char *)0x22400 + (_reg)))
+#endif
 
 #endif
 
@@ -597,6 +611,51 @@ extern cregister void *C31;
 
 #ifndef BIT
 #define BIT(x) (1U << (x))
+#endif
+
+/* access to the resources of the other PRU (halt it and have your way) */
+#if defined(PRU0) || defined(PRU1)
+
+static inline void pru_other_halt(void)
+{
+	PCTRL_OTHER(0x0000) &= ~CONTROL_ENABLE;	/* clear enable */
+	/* loop until RUNSTATE clears */
+	while ((PCTRL_OTHER(0x0000) & CONTROL_RUNSTATE) != 0)
+		;
+}
+
+static inline void pru_other_resume(void)
+{
+	PCTRL_OTHER(0x0000) |= CONTROL_ENABLE;	/* set enable */
+}
+
+static inline u32 pru_other_read_reg(u16 reg)
+{
+	u32 val;
+
+	reg <<= 2;	/* multiply by 4 */
+	pru_other_halt();
+	val = PDBG_OTHER(reg);
+	pru_other_resume();
+	return val;
+}
+
+static inline void pru_other_write_reg(u16 reg, u32 val)
+{
+	reg <<= 2;	/* multiply by 4 */
+	pru_other_halt();
+	PDBG_OTHER(reg) = val;
+	pru_other_resume();
+}
+
+static inline void pru_other_and_or_reg(u16 reg, u32 andmsk, u32 ormsk)
+{
+	reg <<= 2;	/* multiply by 4 */
+	pru_other_halt();
+	PDBG_OTHER(reg) = (PDBG_OTHER(reg) & andmsk) | ormsk;
+	pru_other_resume();
+}
+
 #endif
 
 #endif

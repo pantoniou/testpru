@@ -20,9 +20,9 @@
 extern void delay_cycles(u32 delay);
 extern void delay_cycles_accurate(u32 delay);
 extern void delay_cycles_accurate2(u32 delay);
-extern void pwm_loop_asm(u32 hi, u32 lo);
-extern void pwm_loop_asm2(u32 hi, u32 lo);
-extern void fast_pwm(void);
+extern u32 read_other_r30(void);
+
+extern void update_gpo(u32 clrmsk, u32 setmsk);
 
 void pwm_loop(u32 hi, u32 lo)
 {
@@ -47,66 +47,6 @@ void pwm_loop2(u32 hi, u32 lo)
 #define T1 asm (" .global T1\nT1:");
 #define T2 asm (" .global T2\nT2:");
 
-#if 0
-int main(int argc, char *argv[])
-{
-	u32 hi, lo;
-	struct pwm_config *pwmc = (void *)DPRAM_SHARED;
-
-	/* enable OCP master port */
-	PRUCFG_SYSCFG &= ~SYSCFG_STANDBY_INIT;
-
-#if 0
-	sc_puts("PRU1; waiting");
-	for (;;) {
-		while (!pru_signal())
-			;
-
-		if (PINTC_SRSR0 & (1 << SYSEV_PRU0_TO_PRU1)) {
-			PINTC_SICR = SYSEV_PRU0_TO_PRU1;
-			break;
-		}
-	}
-#endif
-
-	sc_puts("PRU1; go");
-
-	hi = PRU_us(100);
-	lo = PRU_us(100);
-
-	for (;;) {
-#if 0
-		// pwm_loop(hi, lo);
-		T1
-		PCTRL_CONTROL &= ~CONTROL_COUNTER_ENABLE;
-		PCTRL_CONTROL |= CONTROL_COUNTER_ENABLE;
-		T2
-		// pwm_loop_asm(hi, lo);
-		// pwm_loop2(hi, lo);
-#endif
-		pwm_loop_asm2(hi, lo);
-
-		/* signalled interrupt from either PRU0 or host */
-		if (!pru_signal())
-			continue;
-
-		if (PINTC_SRSR0 & (1 << SYSEV_OTHER_PRU_TO_THIS_PRU)) {
-			PINTC_SICR = SYSEV_OTHER_PRU_TO_THIS_PRU;
-
-			hi = pwmc->hi_cycles;
-			lo = pwmc->lo_cycles;
-
-			sc_printf("hi=%d lo=%d", hi, lo);
-		}
-		if (PINTC_SRSR0 & (1 << SYSEV_ARM_TO_THIS_PRU)) {
-			PINTC_SICR = SYSEV_ARM_TO_THIS_PRU;
-			/* sc_puts("PRU1 signalled from ARM"); */
-		}
-	}
-}
-
-#else
-
 struct pwm_multi_config cfg;
 
 static void pwm_setup(void)
@@ -123,8 +63,8 @@ static void pwm_setup(void)
 	cfg.hilo[13][1] = PRU_us(100);
 }
 
-#define USE_PWM_LOOP
-#undef USE_PWM_MACRO
+#undef USE_PWM_LOOP
+#define USE_PWM_MACRO
 
 struct cxt {
 	u32 cnt;
@@ -240,8 +180,10 @@ static void handle_pwm_cmd(struct cxt *cxt)
 					__R30 &= ~msk;
 			}
 		}
-
+	} else if (pwmc->cmd == PWM_CMD_TEST) {
+		/* nothing */
 	}
+
 	pwmc->magic = PWM_REPLY_MAGIC;
 	SIGNAL_EVENT(SYSEV_THIS_PRU_TO_OTHER_PRU);
 
@@ -299,7 +241,6 @@ int main(int argc, char *argv[])
 #elif defined(PRU1)
 	PRUCFG_SPP |=  SPP_PRU1_PAD_HP_EN;
 #endif
-
 	pwm_setup();
 
 	sc_puts("PRU1; go");
@@ -387,11 +328,11 @@ int main(int argc, char *argv[])
 				if (stmask & (1U << (_i))) { \
 					stmask &= ~(1U << (_i)); \
 					clrmsk &= ~(1U << (_i)); \
-					tnext += hi; \
+					tnext += lo; \
 				} else { \
 					stmask |= (1U << (_i)); \
 					setmsk |= (1U << (_i)); \
-					tnext += lo; \
+					tnext += hi; \
 				} \
 			} \
 			if (delta <= deltamin) { \
@@ -418,11 +359,11 @@ int main(int argc, char *argv[])
 				if (stmask & msk) {
 					stmask &= ~msk;
 					clrmsk &= ~msk;
-					tnext += hi;
+					tnext += lo;
 				} else {
 					stmask |= msk;
 					setmsk |= msk;
-					tnext += lo;
+					tnext += hi;
 				}
 			}
 			if (delta <= deltamin) {
@@ -483,11 +424,64 @@ int main(int argc, char *argv[])
 #if MAX_PWMS > 15 && (PWM_EN_MASK & BIT(15))
 		SINGLE_PWM(15);
 #endif
+#if MAX_PWMS > 16 && (PWM_EN_MASK & BIT(16))
+		SINGLE_PWM(16);
 #endif
+#if MAX_PWMS > 17 && (PWM_EN_MASK & BIT(17))
+		SINGLE_PWM(17);
+#endif
+#if MAX_PWMS > 18 && (PWM_EN_MASK & BIT(18))
+		SINGLE_PWM(18);
+#endif
+#if MAX_PWMS > 19 && (PWM_EN_MASK & BIT(19))
+		SINGLE_PWM(19);
+#endif
+#if MAX_PWMS > 20 && (PWM_EN_MASK & BIT(20))
+		SINGLE_PWM(20);
+#endif
+#if MAX_PWMS > 21 && (PWM_EN_MASK & BIT(21))
+		SINGLE_PWM(21);
+#endif
+#if MAX_PWMS > 22 && (PWM_EN_MASK & BIT(22))
+		SINGLE_PWM(22);
+#endif
+#if MAX_PWMS > 23 && (PWM_EN_MASK & BIT(23))
+		SINGLE_PWM(23);
+#endif
+#if MAX_PWMS > 24 && (PWM_EN_MASK & BIT(24))
+		SINGLE_PWM(24);
+#endif
+#if MAX_PWMS > 25 && (PWM_EN_MASK & BIT(25))
+		SINGLE_PWM(25);
+#endif
+#if MAX_PWMS > 26 && (PWM_EN_MASK & BIT(26))
+		SINGLE_PWM(26);
+#endif
+#if MAX_PWMS > 27 && (PWM_EN_MASK & BIT(27))
+		SINGLE_PWM(27);
+#endif
+#if MAX_PWMS > 28 && (PWM_EN_MASK & BIT(28))
+		SINGLE_PWM(28);
+#endif
+#if MAX_PWMS > 29 && (PWM_EN_MASK & BIT(29))
+		SINGLE_PWM(29);
+#endif
+#if MAX_PWMS > 30 && (PWM_EN_MASK & BIT(30))
+		SINGLE_PWM(30);
+#endif
+#if MAX_PWMS > 31 && (PWM_EN_MASK & BIT(31))
+		SINGLE_PWM(30);
+#endif
+#endif
+		/* results in set bits where there are changes */
+		delta = ~clrmsk | setmsk;
 
-		__R30 = (__R30 & (clrmsk & 0xffff)) | (setmsk & 0xffff);
+		if ((delta & 0xffff) != 0)
+			__R30 = (__R30 & (clrmsk & 0xffff)) | (setmsk & 0xffff);
+		if ((delta >> 16) != 0)
+			pru_other_and_or_reg(30, (clrmsk >> 16) | 0xffff0000, setmsk >> 16);
 
-#if 1
+#if 0
 		cnt = read_PIEP_COUNT();
 		if (((next - cnt) & (1U << 31)) == 0 && delta > PRU_ms(1)) {
 			sc_printf("bad next=%x cnt=%x", next, cnt);
@@ -502,5 +496,3 @@ int main(int argc, char *argv[])
 
 	}
 }
-
-#endif

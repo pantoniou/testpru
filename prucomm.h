@@ -14,14 +14,15 @@ struct pwm_config {
 	u32 lo_err;
 };
 
-/* maximum */
-#define MAX_PWMS	16
+/* maximum (PRU0 + PRU1) */
+#define MAX_PWMS	32
 
 /* mask of the possibly enabled PWMs (due to h/w) */
 /* 14, 15 are not routed out for PRU1 */
 #define PWM_EN_MASK	( \
 	BIT( 0)|BIT( 1)|BIT( 2)|BIT( 3)|BIT( 4)|BIT( 5)|BIT( 6)|BIT( 7)| \
-	BIT( 8)|BIT( 9)|BIT(10)|BIT(11)|BIT(12)|BIT(13) \
+	BIT( 8)|BIT( 9)|BIT(10)|BIT(11)|BIT(12)|BIT(13) | \
+	BIT(16 + 5) \
 	)
 
 #define MIN_PWM_PULSE	PRU_us(4)
@@ -41,6 +42,7 @@ struct pwm_multi_config {
 #define PWM_CMD_MODIFY	3	/* modify a pwm */
 #define PWM_CMD_SET	4	/* set a pwm output explicitly */
 #define PWM_CMD_CLR	5	/* clr a pwm output explicitly */ 
+#define PWM_CMD_TEST	6	/* various crap */
 
 struct pwm_cmd {
 	u32 magic;

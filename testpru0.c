@@ -24,7 +24,6 @@ struct pru_vring tx_ring;
 struct pru_vring rx_ring;
 
 static struct pt pt_event;
-// static struct pt pt_led;
 static struct pt pt_prompt;
 static struct pt pt_tx;
 
@@ -208,121 +207,6 @@ static int event_thread(struct pt *pt)
 	PT_END(pt);
 }
 
-#if 0
-static u32 hi_cycles = PRU_200MHz_us(100);
-static u32 lo_cycles = PRU_200MHz_us(100);
-
-static void led_kickstart(void)
-{
-	PIEP_CMP_STATUS = CMD_STATUS_CMP_HIT(0);
-	PIEP_CMP_CMP0 += hi_cycles;
-	__R30 |= (1 << 5);
-}
-
-static void update_hi_cycles(u32 new_cycles)
-{
-	hi_cycles = new_cycles;
-}
-
-static void update_lo_cycles(u32 new_cycles)
-{
-	lo_cycles = new_cycles;
-}
-
-#undef  USE_HW_COMPARE
-#define USE_SW_COMPARE
-#undef  USE_SW_LOOP
-
-static int led_thread(struct pt *pt)
-{
-#if defined(USE_SW_COMPARE) || defined(USE_SW_LOOP)
-	static u32 next;
-#endif
-
-	PT_BEGIN(pt);
-
-	/* IEP timer is incrementing by one */
-	PIEP_GLOBAL_CFG = GLOBAL_CFG_CNT_ENABLE	|
-			  GLOBAL_CFG_DEFAULT_INC(1) |
-			  GLOBAL_CFG_CMP_INC(1);
-
-	/* lo */
-	__R30 &= ~(1 << 5);
-
-	/* delay with the timer */
-	PIEP_CMP_CMP0 = PIEP_COUNT + lo_cycles;
-	PIEP_CMP_STATUS = CMD_STATUS_CMP_HIT(0); /* clear the interrupt */
-	PIEP_CMP_CFG |= CMP_CFG_CMP_EN(0) | CMP_CFG_CMP_EN(1);
-
-#ifdef USE_HW_COMPARE
-	for (;;) {
-		/* wait until we get the indication */
-		PT_WAIT_UNTIL(pt,
-				(PIEP_CMP_STATUS & CMD_STATUS_CMP_HIT(0)) != 0);
-		__R30 |= (1 << 5);
-		PIEP_CMP_STATUS = CMD_STATUS_CMP_HIT(0);
-		PIEP_CMP_CMP0 += hi_cycles;
-
-		/* wait until we get the indication */
-		PT_WAIT_UNTIL(pt,
-				(PIEP_CMP_STATUS & CMD_STATUS_CMP_HIT(0)) != 0);
-		__R30 &= ~(1 << 5);
-		PIEP_CMP_STATUS = CMD_STATUS_CMP_HIT(0);
-		PIEP_CMP_CMP0 += lo_cycles;
-
-	}
-#endif
-
-#ifdef USE_SW_COMPARE
-	next = PIEP_COUNT + lo_cycles;
-	for (;;) {
-		/* wait until we get the indication */
-		PT_WAIT_UNTIL(pt, (int)(next - PIEP_COUNT) <= 0);
-		__R30 |= (1 << 5);
-		next += hi_cycles;
-
-		/* wait until we get the indication */
-		PT_WAIT_UNTIL(pt, (int)(next - PIEP_COUNT) <= 0);
-		__R30 &= ~(1 << 5);
-		next += lo_cycles;
-	}
-#endif
-
-#ifdef USE_SW_LOOP
-	next = PIEP_COUNT + lo_cycles;
-	for (;;) {
-asm(
-"	.global t1\n"
-"t1:\n"
-);
-		DELAY_CYCLES(lo_cycles);
-
-asm(
-"	.global t2\n"
-"t2:\n"
-);
-		__R30 |= (1 << 5);
-		next += hi_cycles;
-
-		/* wait until we get the indication */
-		DELAY_CYCLES(hi_cycles);
-
-		__R30 &= ~(1 << 5);
-		next += lo_cycles;
-
-		/* simply yield if there's any activity */
-		if (pru_signal() || rx_cnt || tx_cnt || pru_vring_buf_is_avail(&tx_ring))
-			PT_YIELD(pt);
-
-	}
-#endif
-
-	PT_YIELD(pt);
-
-	PT_END(pt);
-}
-#endif
-
 /* context for console I/O */
 #define CONSOLE_LINE_MAX	80
 
@@ -497,23 +381,9 @@ static int prompt_thread(struct pt *pt)
 	char *p;
 	static int linesz;
 	u32 val;
-#if 0
-	static struct pwm_config *pwmc;
-	static u8 mode;
-#endif
 
 	PT_BEGIN(pt);
 
-#if 0
-	pwmc = (void *)DPRAM_SHARED;
-	mode = 0;	/* us */
-
-	pwmc->hi_cycles = hi_cycles;
-	pwmc->lo_cycles = lo_cycles;
-
-	/* VRING0 PRU0 -> PRU1 */
-	SIGNAL_EVENT(17);
-#endif
 	PWM_CMD->magic = PWM_REPLY_MAGIC;
 
 	for (;;) {
@@ -565,6 +435,7 @@ again:
 
 			PWM_CMD->magic = PWM_CMD_MAGIC;
 			SIGNAL_EVENT(SYSEV_THIS_PRU_TO_OTHER_PRU);
+
 		} else {
 			pp = "*BAD*\n";
 		}
@@ -619,9 +490,6 @@ static int tx_thread(struct pt *pt)
 	PT_END(pt);
 }
 
-#define T1 asm (" .global T1\nT1:");
-#define T2 asm (" .global T2\nT2:");
-
 int main(int argc, char *argv[])
 {
 	/* enable OCP master port */
@@ -629,16 +497,7 @@ int main(int argc, char *argv[])
 
 	sc_printf("PRU0: Using protothreads");
 
-	PCTRL_CTPPR0 = (PCTRL_CTPPR0 & ~0xffff) | (DPRAM_SHARED >> 8);
-	sc_printf("CTPPR0 0x%x\n", PCTRL_CTPPR0);
-	*(volatile u32 *)DPRAM_SHARED = 0xdeadbeef;
-	sc_printf("DPRAM_SHARED[0] = 0x%x\n", *(volatile u32 *)DPRAM_SHARED);
-T1
-	sc_printf("DPRAM_SHARED[0] = 0x%x\n", *(volatile u32 *)((char *)C28));
-T2
-
 	PT_INIT(&pt_event);
-	// PT_INIT(&pt_led);
 	PT_INIT(&pt_prompt);
 	PT_INIT(&pt_tx);
 
@@ -649,7 +508,6 @@ T2
 	for (;;) {
 		event_thread(&pt_event);
 		tx_thread(&pt_tx);
-		// led_thread(&pt_led);
 		prompt_thread(&pt_prompt);
 	}
 }

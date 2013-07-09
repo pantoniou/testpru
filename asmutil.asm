@@ -4,6 +4,10 @@
 
         .text
 
+	;* Save on call: R0-R1, R14-R29
+	;* Save on entry: R3.w2-R13
+
+
         .global delay_cycles
 
 delay_cycles:
@@ -104,39 +108,11 @@ m3?	ADD	delta, next, cnt		;* delta = cxt.next[(_i)] - cnt;
 m1?:
 	.endm
 
-	;* Save on call: R0-R1, R14-R29
-	;* Save on entry: R3.w2-R13
+	;* update_gpo R14=clrmsk, R15=setmsk
+	.global update_gpo
 
-	.global fast_pwm
-
-        .asg r14, enmsk
-	.asg r15, delta
-	.asg r16, next
-	.asg r17, cnt
-	.asg r18, cxtstmsk
-	.asg r19, stmsk
-	.asg r20, clrmsk
-	.asg r21, hi
-	.asg r22, lo
-	.asg r23, deltamin
-
-fast_pwm:
-$L40:
-
-	QBBC	$L41, enmsk, 0			;* if (cfg.enmask & (1U << (_i))) {
-	SUB	delta, next, cnt		;* delta = next - cnt
-	QBBC	$L41, delta, 31			;* if ((delta & (1U << 31)) != 0) {
-	QBBC	$L42, cxtstmsk, 0		;* if (cxt.stmask & (1U << (_i))) {
-	CLR	cxtstmsk, cxtstmsk, 0		;* cxt.stmask &= ~(1U << (_i)); 
-	CLR	clrmsk, clrmsk, 0		;* clrmsk &= ~(1U << (_i));
-	ADD	next, next, hi			;* cxt.next[(_i)] += hi
-	JMP	$L43
-$L42:	SET	cxtstmsk, cxtstmsk, 0		;* cxt.stmask |= (1U << (_i)); 
-	CLR	stmsk, stmsk, 0			;* stmsk |= (1U << (_i));
-	ADD	next, next, lo			;* cxt.next[(_i)] += lo
-$L43:	ADD	delta, next, cnt		;* delta = cxt.next[(_i)] - cnt;
-	MIN	deltamin, delta, deltamin	;* deltamin = min(delta, deltamin)
-$L41:
-
-	QBBC $L40, R31, 31	;* test PRU1 event, if not loop
+update_gpo:
+	;* first update the local R30 (with the low order bits)
+	AND R30.w0, R30.w0, R14.w0
+	OR R30.w0, R30.w0, R15.w0
 	JMP R3.w0		;* 
