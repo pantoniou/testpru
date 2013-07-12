@@ -611,6 +611,12 @@ extern cregister void *C31;
 #define SYSEV_VR_THIS_PRU_TO_ARM	SYSEV_VR_PRU1_TO_ARM
 #endif
 
+/* all events < 32 */
+#define SYSEV_THIS_PRU_INCOMING_MASK	\
+	(BIT(SYSEV_ARM_TO_THIS_PRU) | \
+	 BIT(SYSEV_OTHER_PRU_TO_THIS_PRU) | \
+	 BIT(SYSEV_VR_ARM_TO_THIS_PRU))
+
 #define DELAY_CYCLES(x) \
 	do { \
 		unsigned int t = (x) >> 1; \

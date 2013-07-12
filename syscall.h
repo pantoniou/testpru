@@ -14,15 +14,18 @@ static inline void *pa_to_da(u32 pa)
 	return (void *)pa;
 }
 
-#define SC_HALT		0	/* halt system */
-#define SC_PUTC		1	/* output a single char */
-#define SC_EXIT		2	/* exit (with a value) */
-#define SC_PUTS		3	/* output a null terminated string */
+#define SC_HALT			0	/* halt system */
+#define SC_PUTC			1	/* output a single char */
+#define SC_EXIT			2	/* exit (with a value) */
+#define SC_PUTS			3	/* output a null terminated string */
 
 #define SC_GET_CFG	4	/* get configuration */
 #define  SC_GET_CFG_VRING_NR   0 /* get vring number */
 #define  SC_GET_CFG_VRING_INFO 1	/* get info about the vring */
 #define  SC_GET_CFG_RESOURCE_TABLE 2	/* get the resource table */
+
+#define SC_DOWNCALL_READY	254	/* host requested a downcall, ack it, and execute */
+#define SC_DOWNCALL_DONE	255	/* call is performed, inform the host */
 
 /* in syscall.asm */
 extern int syscall(u32 nr);
@@ -79,5 +82,9 @@ static inline struct resource_table *sc_get_cfg_resource_table(void)
 {
 	return (void *)sc_get_cfg(SC_GET_CFG_RESOURCE_TABLE, 0, NULL);
 }
+
+/* downcall is handled by assembly */
+
+extern void sc_downcall(int (*handler)(u32 nr, u32 arg0, u32 arg1, u32 arg2));
 
 #endif

@@ -28,7 +28,7 @@ CFLAGS= -v3 --c99 --gcc -O3 --printf_support=minimal -ppd -ppa
 # -x				Reread libs until no unresolved symbols found
 LDFLAGS=-cr --diag_warning=225 -llnk-am33xx.cmd -x
 
-STRIPFLAGS=
+STRIPFLAGS=-p
 
 OBJS0:=testpru0.obj syscall0.obj debug.obj pru_vring.obj asmutil.obj
 OBJS1:=testpru1.obj syscall1.obj debug.obj asmutil.obj

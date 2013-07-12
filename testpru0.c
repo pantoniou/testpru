@@ -5,6 +5,8 @@
 
 #define PRU0
 
+#define DEBUG
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdarg.h>
@@ -19,6 +21,7 @@
 #include "syscall.h"
 #include "pru_vring.h"
 #include "pt.h"
+#include "virtio_ids.h"
 
 struct pru_vring tx_ring;
 struct pru_vring rx_ring;
@@ -49,12 +52,36 @@ void *resource_get_type(struct resource_table *res, int type, int idx)
 			continue;
 		if (j == idx)
 			return &rsc_hdr->data[0];
+		j++;
 	}
 
 	return NULL;
 }
 
-static void handle_event_startup(void)
+struct fw_rsc_vdev *
+resource_get_rsc_vdev(struct resource_table *res, int id, int idx)
+{
+	struct fw_rsc_hdr *rsc_hdr;
+	struct fw_rsc_vdev *rsc_vdev;
+	int i, j;
+
+	j = 0;
+	for (i = 0; i < res->num; i++) {
+		rsc_hdr = (void *)((char *)res + res->offset[i]);
+		if (rsc_hdr->type != RSC_VDEV)
+			continue;
+		rsc_vdev = (struct fw_rsc_vdev *)&rsc_hdr->data[0];
+		if (id >= 0 && id != rsc_vdev->id)
+			continue;
+		if (j == idx)
+			return rsc_vdev;
+		j++;
+	}
+
+	return NULL;
+}
+
+static void resource_setup(void)
 {
 	struct resource_table *res;
 	struct fw_rsc_vdev *rsc_vdev;
@@ -66,8 +93,8 @@ static void handle_event_startup(void)
 	res = sc_get_cfg_resource_table();
 	BUG_ON(res == NULL);
 
-	/* get first VDEV resource */
-	rsc_vdev = resource_get_type(res, RSC_VDEV, 0);
+	/* get first RPROC_SERIAL VDEV resource */
+	rsc_vdev = resource_get_rsc_vdev(res, VIRTIO_ID_RPROC_SERIAL, 0);
 	BUG_ON(rsc_vdev == NULL);
 
 	BUG_ON(rsc_vdev->num_of_vrings < 2);
@@ -139,6 +166,14 @@ static char tx_buf[TX_SIZE];
 		(_ch) = tx_buf[tx_out++ & TX_SIZE_MASK]; \
 	} while (0)
 
+static int handle_downcall(u32 nr, u32 arg0, u32 arg1, u32 arg2)
+{
+	sc_printf("downcall nr=%d arg0=0x%x arg1=0x%x arg2=0x%x",
+			nr, arg0, arg1, arg2);
+
+	return 0;
+}
+
 static int event_thread(struct pt *pt)
 {
 	static struct pru_vring_elem pvre;
@@ -153,11 +188,16 @@ static int event_thread(struct pt *pt)
 		/* wait until we get the indication */
 		PT_WAIT_UNTIL(pt,
 			/* pru_signal() && */
-			(PINTC_SRSR0 & (BIT(SYSEV_ARM_TO_THIS_PRU) |
-				BIT(SYSEV_OTHER_PRU_TO_THIS_PRU))) != 0);
+			(PINTC_SRSR0 & SYSEV_THIS_PRU_INCOMING_MASK) != 0);
 
+		/* downcall from the host */
 		if (PINTC_SRSR0 & BIT(SYSEV_ARM_TO_THIS_PRU)) {
 			PINTC_SICR = SYSEV_ARM_TO_THIS_PRU;
+			sc_downcall(handle_downcall);
+		}
+
+		if (PINTC_SRSR0 & BIT(SYSEV_VR_ARM_TO_THIS_PRU)) {
+			PINTC_SICR = SYSEV_VR_ARM_TO_THIS_PRU;
 
 			while (pru_vring_pop(&rx_ring, &pvre)) {
 
@@ -506,7 +546,7 @@ int main(int argc, char *argv[])
 	PT_INIT(&pt_prompt);
 	PT_INIT(&pt_tx);
 
-	handle_event_startup();
+	resource_setup();
 	rx_in = rx_out = rx_cnt = 0;
 	tx_in = tx_out = tx_cnt = 0;
 
