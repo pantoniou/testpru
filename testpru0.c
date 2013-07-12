@@ -23,6 +23,8 @@
 #include "pt.h"
 #include "virtio_ids.h"
 
+#include "prurproc.h"
+
 struct pru_vring tx_ring;
 struct pru_vring rx_ring;
 
@@ -166,10 +168,35 @@ static char tx_buf[TX_SIZE];
 		(_ch) = tx_buf[tx_out++ & TX_SIZE_MASK]; \
 	} while (0)
 
-static int handle_downcall(u32 nr, u32 arg0, u32 arg1, u32 arg2)
+static int handle_downcall(u32 id, u32 arg0, u32 arg1, u32 arg2,
+		u32 arg3, u32 arg4)
 {
-	sc_printf("downcall nr=%d arg0=0x%x arg1=0x%x arg2=0x%x",
-			nr, arg0, arg1, arg2);
+	switch (id) {
+		case DC_PWM_CONFIG:
+			/* return -EINVAL */
+			if (arg1 < MIN_PWM_PULSE || arg2 < MIN_PWM_PULSE)
+				return -22;
+			PWM_CMD->cmd = PWM_CMD_MODIFY;
+			PWM_CMD->pwm_nr = arg0;
+			PWM_CMD->u.hilo[0] = arg1;
+			PWM_CMD->u.hilo[1] = arg2;
+			break;
+		case DC_PWM_ENABLE:
+			PWM_CMD->cmd = PWM_CMD_ENABLE;
+			PWM_CMD->pwm_nr = arg0;
+			break;
+		case DC_PWM_DISABLE:
+			PWM_CMD->cmd = PWM_CMD_DISABLE;
+			PWM_CMD->pwm_nr = arg0;
+			break;
+		default:
+			sc_printf("bad downcall with id %d", id);
+			/* error */
+			return -1;
+	}
+
+	PWM_CMD->magic = PWM_CMD_MAGIC;
+	SIGNAL_EVENT(SYSEV_THIS_PRU_TO_OTHER_PRU);
 
 	return 0;
 }
@@ -193,6 +220,10 @@ static int event_thread(struct pt *pt)
 		/* downcall from the host */
 		if (PINTC_SRSR0 & BIT(SYSEV_ARM_TO_THIS_PRU)) {
 			PINTC_SICR = SYSEV_ARM_TO_THIS_PRU;
+
+			/* wait until the PWM_CMD is clear */
+			PT_WAIT_UNTIL(pt, PWM_CMD->magic == PWM_REPLY_MAGIC);
+
 			sc_downcall(handle_downcall);
 		}
 

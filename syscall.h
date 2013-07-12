@@ -85,6 +85,7 @@ static inline struct resource_table *sc_get_cfg_resource_table(void)
 
 /* downcall is handled by assembly */
 
-extern void sc_downcall(int (*handler)(u32 nr, u32 arg0, u32 arg1, u32 arg2));
+extern void sc_downcall(int (*handler)(u32 nr, u32 arg0, u32 arg1,
+			u32 arg2, u32 arg3, u32 arg4));
 
 #endif

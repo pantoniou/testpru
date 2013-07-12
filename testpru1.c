@@ -53,14 +53,17 @@ static void pwm_setup(void)
 {
 	u8 i;
 
+	cfg.enmask = 0;
 	for (i = 0; i < MAX_PWMS; i++)
 		cfg.hilo[i][0] = cfg.hilo[i][1] = PRU_us(200);
 
+#if 0
 	cfg.enmask = BIT(13) | BIT(12);
 	cfg.hilo[12][0] = PRU_us(333);
 	cfg.hilo[12][1] = PRU_us(333);
 	cfg.hilo[13][0] = PRU_us(100);
 	cfg.hilo[13][1] = PRU_us(100);
+#endif
 }
 
 #undef USE_PWM_LOOP
