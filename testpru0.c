@@ -471,6 +471,7 @@ again:
 			goto again;
 
 		ch1 = linebuf[0];
+		pp = "";
 
 		if (ch1 == '?') {
 			c_puts("Help\n"
